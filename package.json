@@ -1,14 +1,14 @@
 {
-	"name": "roblox-ts",
+	"name": "@king-studios/roblox-ts",
 	"version": "1.1.1",
 	"description": "A TypeScript-to-Luau Compiler for Roblox",
 	"main": "out/CLI/index.js",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/roblox-ts/roblox-ts.git"
+		"url": "https://github.com/king-studios/roblox-ts.git"
 	},
 	"bin": {
-		"rbxtsc": "out/CLI/cli.js"
+		"krbxtsc": "out/CLI/cli.js"
 	},
 	"scripts": {
 		"prepare": "npm run build",
