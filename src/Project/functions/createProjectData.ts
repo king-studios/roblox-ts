@@ -21,7 +21,7 @@ export function createProjectData(
 	const projectOptions = Object.assign({}, DEFAULT_PROJECT_OPTIONS, opts);
 	const projectPath = path.dirname(tsConfigPath);
 
-	const pkgJsonPath = ts.findPackageJson(projectPath, (ts.sys as unknown) as ts.LanguageServiceHost);
+	const pkgJsonPath = ts.findPackageJson(projectPath, ts.sys as unknown as ts.LanguageServiceHost);
 	if (!pkgJsonPath) {
 		throw new ProjectError("Unable to find package.json");
 	}
@@ -34,7 +34,6 @@ export function createProjectData(
 		pkgVersion = pkgJson.version;
 	} catch (e) {}
 
-	const logStringChanges = flags.logStringChanges;
 	const logTruthyChanges = flags.logTruthyChanges;
 	const noInclude = flags.noInclude;
 
@@ -54,12 +53,12 @@ export function createProjectData(
 	}
 
 	const writeOnlyChanged = flags.writeOnlyChanged;
+	const watch = flags.watch;
 
 	return {
 		tsConfigPath,
 		includePath,
 		isPackage,
-		logStringChanges,
 		logTruthyChanges,
 		noInclude,
 		nodeModulesPath,
@@ -69,5 +68,6 @@ export function createProjectData(
 		projectPath,
 		rojoConfigPath,
 		writeOnlyChanged,
+		watch,
 	};
 }

@@ -59,7 +59,7 @@ function transformLuaTupleDestructure(
 						state.prereq(transformInitializer(state, id, initializer));
 					}
 				} else if (ts.isArrayLiteralExpression(element)) {
-					const id = luau.tempId();
+					const id = luau.tempId("binding");
 					luau.list.push(variables, id);
 					luau.list.push(writes, id);
 					if (initializer) {
@@ -67,7 +67,7 @@ function transformLuaTupleDestructure(
 					}
 					transformArrayBindingLiteral(state, element, id, getSubType(state, accessType, index));
 				} else if (ts.isObjectLiteralExpression(element)) {
-					const id = luau.tempId();
+					const id = luau.tempId("binding");
 					luau.list.push(variables, id);
 					luau.list.push(writes, id);
 					if (initializer) {
@@ -129,8 +129,8 @@ function createBinaryInstanceOf(state: TransformState, left: luau.Expression, ri
 	right = state.pushToVarIfComplex(right);
 
 	const returnId = state.pushToVar(luau.bool(false));
-	const objId = luau.tempId();
-	const metatableId = luau.tempId();
+	const objId = luau.tempId("obj");
+	const metatableId = luau.tempId("metatable");
 
 	state.prereq(
 		luau.create(luau.SyntaxKind.IfStatement, {
@@ -274,6 +274,7 @@ export function transformBinaryExpression(state: TransformState, node: ts.Binary
 		} else {
 			return createCompoundAssignmentExpression(
 				state,
+				node,
 				writable,
 				writableType,
 				readable,
@@ -310,5 +311,5 @@ export function transformBinaryExpression(state: TransformState, node: ts.Binary
 		}
 	}
 
-	return createBinaryFromOperator(state, left, leftType, operatorKind, right, rightType);
+	return createBinaryFromOperator(state, node, left, leftType, operatorKind, right, rightType);
 }

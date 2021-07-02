@@ -108,4 +108,34 @@ export = () => {
 			expect(substr).to.equal(["ய", "ா", "ம", "ற", "ி", "ந", "்", "த"][j++]);
 		}
 	});
+
+	it("should support multiline strings as an object index", () => {
+		const key = `str
+			ing`;
+
+		const obj = {
+			[`str
+			ing`]: "foo"
+		};
+
+		expect(obj[`str
+			ing`]).to.equal("foo");
+		expect(obj[key]).to.equal("foo");
+
+		obj[`str
+			ing`] = "bar";
+
+		expect(obj[`str
+			ing`]).to.equal("bar");
+		expect(obj[key]).to.equal("bar");
+	});
+
+	// issue #1467
+	it("should support strings with \", ', and ending with ]", () => {
+		const str1 = `A string with a " and ' ending in a ]`;
+		expect(str1.size()).to.equal(37);
+
+		const str2 = `A string with a " and ' ending in a ]] ]=`;
+		expect(str2.size()).to.equal(41);
+	});
 };

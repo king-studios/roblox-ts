@@ -1,6 +1,6 @@
 import ts from "byots";
 import { renderAST } from "LuauRenderer";
-import { pathJoin, PATH_SEP, VirtualFileSystem } from "Project/classes/VirtualFileSystem";
+import { PATH_SEP, pathJoin, VirtualFileSystem } from "Project/classes/VirtualFileSystem";
 import { validateCompilerOptions } from "Project/functions/validateCompilerOptions";
 import { getCustomPreEmitDiagnostics } from "Project/util/getCustomPreEmitDiagnostics";
 import { hasErrors } from "Project/util/hasErrors";
@@ -36,7 +36,6 @@ export class VirtualProject {
 		this.data = {
 			includePath: "",
 			isPackage: false,
-			logStringChanges: false,
 			logTruthyChanges: false,
 			nodeModulesPath: pathJoin(PROJECT_DIR, NODE_MODULES, RBXTS_SCOPE),
 			nodeModulesPathMapping: new Map(),
@@ -47,6 +46,7 @@ export class VirtualProject {
 			rojoConfigPath: undefined,
 			tsConfigPath: "",
 			writeOnlyChanged: false,
+			watch: false,
 		};
 
 		this.compilerOptions = {

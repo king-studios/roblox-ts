@@ -32,7 +32,8 @@ function transformPropertyAssignment(
 }
 
 function transformSpreadAssignment(state: TransformState, ptr: MapPointer, property: ts.SpreadAssignment) {
-	const symbol = getFirstDefinedSymbol(state, state.getType(property.expression));
+	const expType = state.typeChecker.getNonOptionalType(state.getType(property.expression));
+	const symbol = getFirstDefinedSymbol(state, expType);
 	if (symbol && state.services.macroManager.isMacroOnlyClass(symbol)) {
 		DiagnosticService.addDiagnostic(errors.noMacroObjectSpread(property));
 	}
@@ -47,8 +48,8 @@ function transformSpreadAssignment(state: TransformState, ptr: MapPointer, prope
 		spreadExp = state.pushToVarIfComplex(spreadExp);
 	}
 
-	const keyId = luau.tempId();
-	const valueId = luau.tempId();
+	const keyId = luau.tempId("k");
+	const valueId = luau.tempId("v");
 	let statement: luau.Statement = luau.create(luau.SyntaxKind.ForStatement, {
 		ids: luau.list.make(keyId, valueId),
 		expression: luau.call(luau.globals.pairs, [spreadExp]),

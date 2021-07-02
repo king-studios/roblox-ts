@@ -215,23 +215,19 @@ function createBoilerplate(
 			}),
 		);
 
-		//	self:constructor(...);
-		luau.list.push(
-			statementsInner,
-			luau.create(luau.SyntaxKind.CallStatement, {
-				expression: luau.create(luau.SyntaxKind.MethodCallExpression, {
-					expression: luau.globals.self,
-					name: "constructor",
-					args: luau.list.make(luau.create(luau.SyntaxKind.VarArgsLiteral, {})),
-				}),
-			}),
-		);
-
-		//	return self;
+		//	return self:constructor(...) or self;
 		luau.list.push(
 			statementsInner,
 			luau.create(luau.SyntaxKind.ReturnStatement, {
-				expression: luau.globals.self,
+				expression: luau.binary(
+					luau.create(luau.SyntaxKind.MethodCallExpression, {
+						expression: luau.globals.self,
+						name: "constructor",
+						args: luau.list.make(luau.create(luau.SyntaxKind.VarArgsLiteral, {})),
+					}),
+					"or",
+					luau.globals.self,
+				),
 			}),
 		);
 
@@ -303,18 +299,18 @@ export function transformClassLikeDeclaration(state: TransformState, node: ts.Cl
 
 	let returnVar: luau.Identifier | luau.TemporaryIdentifier;
 	if (shouldUseInternalName) {
-		returnVar = luau.tempId();
+		returnVar = luau.tempId("class");
 	} else if (node.name) {
 		returnVar = transformIdentifierDefined(state, node.name);
 	} else if (isExportDefault) {
 		returnVar = luau.id("default");
 	} else {
-		returnVar = luau.tempId();
+		returnVar = luau.tempId("class");
 	}
 
 	let internalName: luau.Identifier | luau.TemporaryIdentifier;
 	if (shouldUseInternalName) {
-		internalName = node.name ? transformIdentifierDefined(state, node.name) : luau.tempId();
+		internalName = node.name ? transformIdentifierDefined(state, node.name) : luau.tempId("class");
 	} else {
 		internalName = returnVar;
 	}
@@ -346,6 +342,16 @@ export function transformClassLikeDeclaration(state: TransformState, node: ts.Cl
 		transformClassConstructor(state, node, { value: internalName }, getConstructor(node)),
 	);
 
+	for (const member of node.members) {
+		if (
+			(ts.isPropertyDeclaration(member) || ts.isMethodDeclaration(member)) &&
+			(ts.isIdentifier(member.name) || ts.isStringLiteral(member.name)) &&
+			luau.isReservedClassField(member.name.text)
+		) {
+			DiagnosticService.addDiagnostic(errors.noReservedClassFields(member.name));
+		}
+	}
+
 	const methods = new Array<ts.MethodDeclaration>();
 	const staticProperties = new Array<ts.PropertyDeclaration>();
 	for (const member of node.members) {
@@ -374,11 +380,11 @@ export function transformClassLikeDeclaration(state: TransformState, node: ts.Cl
 	const instanceType = state.typeChecker.getDeclaredTypeOfSymbol(node.symbol);
 
 	for (const method of methods) {
-		if ((ts.isIdentifier(method.name) || ts.isStringLiteral(method.name)) && luau.isMetamethod(method.name.text)) {
-			DiagnosticService.addDiagnostic(errors.noClassMetamethods(method.name));
-		}
-
 		if (ts.isIdentifier(method.name) || ts.isStringLiteral(method.name)) {
+			if (luau.isMetamethod(method.name.text)) {
+				DiagnosticService.addDiagnostic(errors.noClassMetamethods(method.name));
+			}
+
 			if (!!ts.getSelectedSyntacticModifierFlags(method, ts.ModifierFlags.Static)) {
 				if (instanceType.getProperty(method.name.text) !== undefined) {
 					DiagnosticService.addDiagnostic(errors.noInstanceMethodCollisions(method));

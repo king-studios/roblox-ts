@@ -13,9 +13,15 @@ import { getAncestor } from "TSTransformer/util/traversal";
 import { validateIdentifier } from "TSTransformer/util/validateIdentifier";
 
 function isDeclarationOfNamespace(declaration: ts.Declaration) {
+	if (declaration.modifiers?.some(v => v.kind === ts.SyntaxKind.DeclareKeyword)) {
+		return false;
+	}
+
 	if (ts.isModuleDeclaration(declaration) && ts.isInstantiatedModule(declaration, false)) {
 		return true;
 	} else if (ts.isFunctionDeclaration(declaration) && declaration.body) {
+		return true;
+	} else if (ts.isClassDeclaration(declaration)) {
 		return true;
 	}
 	return false;
@@ -59,7 +65,7 @@ function transformNamespace(state: TransformState, name: ts.Identifier, body: ts
 	const statements = luau.list.make<luau.Statement>();
 	const doStatements = luau.list.make<luau.Statement>();
 
-	const containerId = luau.tempId();
+	const containerId = luau.tempId("container");
 	state.setModuleIdBySymbol(symbol, containerId);
 
 	if (state.isHoisted.get(symbol)) {

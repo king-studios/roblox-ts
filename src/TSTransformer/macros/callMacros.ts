@@ -3,7 +3,17 @@ import { CallMacro, MacroList } from "TSTransformer/macros/types";
 import { convertToIndexableExpression } from "TSTransformer/util/convertToIndexableExpression";
 import { createTruthinessChecks } from "TSTransformer/util/createTruthinessChecks";
 
-const PRIMITIVE_LUAU_TYPES = new Set(["nil", "boolean", "string", "number", "table", "userdata", "function", "thread"]);
+const PRIMITIVE_LUAU_TYPES = new Set([
+	"nil",
+	"boolean",
+	"string",
+	"number",
+	"table",
+	"userdata",
+	"function",
+	"thread",
+	"vector",
+]);
 
 export const CALL_MACROS: MacroList<CallMacro> = {
 	assert: (state, node, expression, args) => {
@@ -28,8 +38,8 @@ export const CALL_MACROS: MacroList<CallMacro> = {
 	},
 
 	opcall: (state, node, expression, args) => {
-		const successId = luau.tempId();
-		const valueOrErrorId = luau.tempId();
+		const successId = luau.tempId("success");
+		const valueOrErrorId = luau.tempId("valueOrError");
 		state.prereq(
 			luau.create(luau.SyntaxKind.VariableDeclaration, {
 				left: luau.list.make(successId, valueOrErrorId),

@@ -1,87 +1,131 @@
 import ts from "byots";
 import luau from "LuauAST";
+import { errors } from "Shared/diagnostics";
 import { assert } from "Shared/util/assert";
 import { TransformState } from "TSTransformer";
+import { DiagnosticService } from "TSTransformer/classes/DiagnosticService";
+import { transformExpression } from "TSTransformer/nodes/expressions/transformExpression";
 import { transformExpressionStatementInner } from "TSTransformer/nodes/statements/transformExpressionStatement";
-import { transformVariableDeclarationList } from "TSTransformer/nodes/statements/transformVariableStatement";
-import { transformWhileStatementInner } from "TSTransformer/nodes/statements/transformWhileStatement";
+import {
+	isVarDeclaration,
+	transformVariableDeclaration,
+} from "TSTransformer/nodes/statements/transformVariableStatement";
 import { transformStatementList } from "TSTransformer/nodes/transformStatementList";
+import { createTruthinessChecks } from "TSTransformer/util/createTruthinessChecks";
 import { getStatements } from "TSTransformer/util/getStatements";
 
-function addIncrementorToIfStatement(node: luau.IfStatement, incrementor: luau.List<luau.Statement>) {
-	if (node.statements.head) {
-		addIncrementor(node.statements, node.statements.head, incrementor);
+function addFinalizersToIfStatement(node: luau.IfStatement, finalizers: luau.List<luau.Statement>) {
+	if (luau.list.isNonEmpty(node.statements)) {
+		addFinalizers(node.statements, node.statements.head, finalizers);
 	}
 	if (luau.list.isList(node.elseBody)) {
-		if (node.elseBody.head) {
-			addIncrementor(node.elseBody, node.elseBody.head, incrementor);
+		if (luau.list.isNonEmpty(node.elseBody)) {
+			addFinalizers(node.elseBody, node.elseBody.head, finalizers);
 		}
 	} else {
-		addIncrementorToIfStatement(node.elseBody, incrementor);
+		addFinalizersToIfStatement(node.elseBody, finalizers);
 	}
 }
 
-function addIncrementor(
+function addFinalizers(
 	list: luau.List<luau.Statement>,
 	node: luau.ListNode<luau.Statement>,
-	incrementor: luau.List<luau.Statement>,
+	finalizers: luau.List<luau.Statement>,
 ) {
 	assert(!luau.list.isEmpty(list));
 
 	const statement = node.value;
 	if (luau.isContinueStatement(statement)) {
-		const incrementorClone = luau.list.clone(incrementor);
+		const finalizersClone = luau.list.clone(finalizers);
 
 		if (node.prev) {
-			node.prev.next = incrementorClone.head;
+			node.prev.next = finalizersClone.head;
 		} else if (node === list.head) {
-			list.head = incrementorClone.head;
+			list.head = finalizersClone.head;
 		}
 
-		node.prev = incrementorClone.tail;
+		node.prev = finalizersClone.tail;
 
-		incrementorClone.tail!.next = node;
+		finalizersClone.tail!.next = node;
 	}
 
 	if (luau.isDoStatement(statement)) {
-		if (statement.statements.head) {
-			addIncrementor(statement.statements, statement.statements.head, incrementor);
+		if (luau.list.isNonEmpty(statement.statements)) {
+			addFinalizers(statement.statements, statement.statements.head, finalizers);
 		}
 	} else if (luau.isIfStatement(statement)) {
-		addIncrementorToIfStatement(statement, incrementor);
+		addFinalizersToIfStatement(statement, finalizers);
 	}
 
 	if (node.next) {
-		addIncrementor(list, node.next, incrementor);
+		addFinalizers(list, node.next, finalizers);
 	}
 }
 
 export function transformForStatement(state: TransformState, node: ts.ForStatement): luau.List<luau.Statement> {
-	const statements = luau.list.make<luau.Statement>();
+	const { initializer, condition, incrementor, statement } = node;
 
-	if (node.initializer) {
-		if (ts.isVariableDeclarationList(node.initializer)) {
-			luau.list.pushList(statements, transformVariableDeclarationList(state, node.initializer));
+	const result = luau.list.make<luau.Statement>();
+
+	const shouldIncrement = luau.tempId();
+	luau.list.push(
+		result,
+		luau.create(luau.SyntaxKind.VariableDeclaration, {
+			left: shouldIncrement,
+			right: luau.bool(false),
+		}),
+	);
+
+	if (initializer) {
+		if (ts.isVariableDeclarationList(initializer)) {
+			if (isVarDeclaration(initializer)) {
+				DiagnosticService.addDiagnostic(errors.noVar(node));
+			}
+
+			const statements = luau.list.make<luau.Statement>();
+			for (const declaration of initializer.declarations) {
+				const [decStatements, decPrereqs] = state.capture(() =>
+					transformVariableDeclaration(state, declaration),
+				);
+				luau.list.pushList(statements, decPrereqs);
+				luau.list.pushList(statements, decStatements);
+			}
+
+			luau.list.pushList(result, statements);
 		} else {
-			luau.list.pushList(statements, transformExpressionStatementInner(state, node.initializer));
+			const [statements, prereqs] = state.capture(() => transformExpressionStatementInner(state, initializer));
+			luau.list.pushList(result, prereqs);
+			luau.list.pushList(result, statements);
+		}
+
+		for (const saveInfo of state.forStatementInitializerSaveInfoMap.get(node) ?? []) {
+			luau.list.push(
+				result,
+				luau.create(luau.SyntaxKind.Assignment, {
+					left: saveInfo.originalId,
+					operator: "=",
+					right: saveInfo.copyId,
+				}),
+			);
+			state.forStatementSymbolToIdMap.set(saveInfo.symbol, saveInfo.originalId);
 		}
 	}
 
-	const loopInitializers = luau.list.make<luau.Statement>();
-	const incrementor = luau.list.make<luau.Statement>();
+	const whileStatements = luau.list.make<luau.Statement>();
+	const saveWriteStatements = luau.list.make<luau.Statement>();
 
 	for (const symbol of state.forStatementToSymbolsMap.get(node) ?? []) {
 		const id = luau.id(symbol.name);
 		const tempId = state.forStatementSymbolToIdMap.get(symbol)!;
 		luau.list.push(
-			loopInitializers,
+			whileStatements,
 			luau.create(luau.SyntaxKind.VariableDeclaration, {
 				left: id,
 				right: tempId,
 			}),
 		);
 		luau.list.push(
-			incrementor,
+			saveWriteStatements,
 			luau.create(luau.SyntaxKind.Assignment, {
 				left: tempId,
 				operator: "=",
@@ -90,25 +134,72 @@ export function transformForStatement(state: TransformState, node: ts.ForStateme
 		);
 	}
 
-	const whileStatement = transformWhileStatementInner(state, node.condition, node.statement, loopInitializers);
-
-	if (node.incrementor) {
-		luau.list.pushList(incrementor, transformExpressionStatementInner(state, node.incrementor));
+	const incrementorStatements = luau.list.make<luau.Statement>();
+	if (incrementor) {
+		const [statements, prereqs] = state.capture(() => transformExpressionStatementInner(state, incrementor));
+		luau.list.pushList(incrementorStatements, prereqs);
+		luau.list.pushList(incrementorStatements, statements);
 	}
 
-	if (whileStatement.statements.head) {
-		addIncrementor(whileStatement.statements, whileStatement.statements.head, incrementor);
+	luau.list.push(
+		whileStatements,
+		luau.create(luau.SyntaxKind.IfStatement, {
+			condition: shouldIncrement,
+			statements: incrementorStatements,
+			elseBody: luau.list.make(
+				luau.create(luau.SyntaxKind.Assignment, {
+					left: shouldIncrement,
+					operator: "=",
+					right: luau.bool(true),
+				}),
+			),
+		}),
+	);
+
+	// eslint-disable-next-line prefer-const
+	let [conditionExp, conditionPrereqs] = state.capture(() => {
+		if (condition) {
+			return createTruthinessChecks(
+				state,
+				transformExpression(state, condition),
+				condition,
+				state.getType(condition),
+			);
+		} else {
+			return luau.bool(true);
+		}
+	});
+
+	luau.list.pushList(whileStatements, conditionPrereqs);
+	luau.list.push(
+		whileStatements,
+		luau.create(luau.SyntaxKind.IfStatement, {
+			condition: luau.unary("not", conditionExp),
+			statements: luau.list.make(luau.create(luau.SyntaxKind.BreakStatement, {})),
+			elseBody: luau.list.make(),
+		}),
+	);
+
+	luau.list.pushList(whileStatements, transformStatementList(state, getStatements(statement)));
+
+	if (luau.list.isNonEmpty(whileStatements) && luau.list.isNonEmpty(saveWriteStatements)) {
+		addFinalizers(whileStatements, whileStatements.head, saveWriteStatements);
 	}
 
-	if (!whileStatement.statements.tail || !luau.isFinalStatement(whileStatement.statements.tail.value)) {
-		luau.list.pushList(whileStatement.statements, incrementor);
+	if (!whileStatements.tail || !luau.isFinalStatement(whileStatements.tail.value)) {
+		luau.list.pushList(whileStatements, saveWriteStatements);
 	}
 
-	luau.list.push(statements, whileStatement);
+	const whileStatement = luau.create(luau.SyntaxKind.WhileStatement, {
+		condition: luau.bool(true),
+		statements: whileStatements,
+	});
 
-	if (statements.head === statements.tail) {
-		return statements;
+	luau.list.push(result, whileStatement);
+
+	if (result.head === result.tail) {
+		return result;
 	} else {
-		return luau.list.make(luau.create(luau.SyntaxKind.DoStatement, { statements }));
+		return luau.list.make(luau.create(luau.SyntaxKind.DoStatement, { statements: result }));
 	}
 }

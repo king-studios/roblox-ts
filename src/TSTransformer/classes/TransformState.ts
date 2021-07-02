@@ -5,7 +5,7 @@ import path from "path";
 import { PathTranslator } from "Shared/classes/PathTranslator";
 import { RbxPath, RbxPathParent, RojoResolver } from "Shared/classes/RojoResolver";
 import { PARENT_FIELD, ProjectType } from "Shared/constants";
-import { errors } from "Shared/diagnostics";
+import { errors, warnings } from "Shared/diagnostics";
 import { ProjectData } from "Shared/types";
 import { assert } from "Shared/util/assert";
 import { getOrSetDefault } from "Shared/util/getOrSetDefault";
@@ -44,6 +44,7 @@ export class TransformState {
 	}
 
 	public readonly resolver: ts.EmitResolver;
+	private isInReplicatedFirst: boolean;
 
 	constructor(
 		public readonly data: ProjectData,
@@ -61,6 +62,10 @@ export class TransformState {
 	) {
 		this.sourceFileText = sourceFile.getFullText();
 		this.resolver = typeChecker.getEmitResolver(sourceFile);
+
+		const sourceOutPath = this.pathTranslator.getOutputPath(sourceFile.fileName);
+		const rbxPath = this.rojoResolver.getRbxPathFromFilePath(sourceOutPath);
+		this.isInReplicatedFirst = rbxPath !== undefined && rbxPath[0] === "ReplicatedFirst";
 	}
 
 	public readonly tryUsesStack = new Array<TryUses>();
@@ -162,16 +167,16 @@ export class TransformState {
 	/**
 	 * Returns the node and prerequisite statements created by `callback`.
 	 */
-	public capture<T extends luau.Node>(callback: () => T): [node: T, prereqs: luau.List<luau.Statement>] {
-		let node!: T;
-		const prereqs = this.capturePrereqs(() => (node = callback()));
-		return [node, prereqs];
+	public capture<T extends luau.Node>(callback: () => T): [node: T, prereqs: luau.List<luau.Statement>];
+	public capture<T extends luau.List<luau.Node>>(callback: () => T): [list: T, prereqs: luau.List<luau.Statement>];
+	public capture<T extends luau.Node | luau.List<luau.Node>>(
+		callback: () => T,
+	): [value: T, prereqs: luau.List<luau.Statement>] {
+		let value!: T;
+		const prereqs = this.capturePrereqs(() => (value = callback()));
+		return [value, prereqs];
 	}
 
-	/**
-	 *
-	 * @param callback
-	 */
 	public noPrereqs(callback: () => luau.Expression) {
 		let expression!: luau.Expression;
 		const statements = this.capturePrereqs(() => (expression = callback()));
@@ -195,8 +200,13 @@ export class TransformState {
 	}
 
 	public usesRuntimeLib = false;
-	public TS(name: string) {
+	public TS(node: ts.Node, name: string) {
 		this.usesRuntimeLib = true;
+
+		if (this.projectType === ProjectType.Game && this.isInReplicatedFirst) {
+			DiagnosticService.addDiagnostic(warnings.runtimeLibUsedInReplicatedFirst(node));
+		}
+
 		return luau.property(RUNTIME_LIB_ID, name);
 	}
 
@@ -234,7 +244,9 @@ export class TransformState {
 				const sourceOutPath = this.pathTranslator.getOutputPath(sourceFile.fileName);
 				const rbxPath = this.rojoResolver.getRbxPathFromFilePath(sourceOutPath);
 				if (!rbxPath) {
-					DiagnosticService.addDiagnostic(errors.noRojoData(sourceFile));
+					DiagnosticService.addDiagnostic(
+						errors.noRojoData(sourceFile, path.relative(this.data.projectPath, sourceOutPath)),
+					);
 					return luau.create(luau.SyntaxKind.VariableDeclaration, {
 						left: RUNTIME_LIB_ID,
 						right: luau.nil(),
@@ -271,8 +283,8 @@ export class TransformState {
 	 * Can also be used to initialise a new tempId without a value
 	 * @param expression
 	 */
-	public pushToVar(expression: luau.Expression | undefined) {
-		const temp = luau.tempId();
+	public pushToVar(expression: luau.Expression | undefined, name?: string) {
+		const temp = luau.tempId(name);
 		this.prereq(
 			luau.create(luau.SyntaxKind.VariableDeclaration, {
 				left: temp,
@@ -288,22 +300,23 @@ export class TransformState {
 	 */
 	public pushToVarIfComplex<T extends luau.Expression>(
 		expression: T,
+		name?: string,
 	): Extract<T, luau.SimpleTypes> | luau.TemporaryIdentifier {
 		if (luau.isSimple(expression)) {
 			return expression as Extract<T, luau.SimpleTypes>;
 		}
-		return this.pushToVar(expression);
+		return this.pushToVar(expression, name);
 	}
 
 	/**
 	 * Uses `state.pushToVar(expression)` unless `luau.isAnyIdentifier(expression)`
 	 * @param expression the expression to push
 	 */
-	public pushToVarIfNonId<T extends luau.Expression>(expression: T): luau.AnyIdentifier {
+	public pushToVarIfNonId<T extends luau.Expression>(expression: T, name?: string): luau.AnyIdentifier {
 		if (luau.isAnyIdentifier(expression)) {
 			return expression;
 		}
-		return this.pushToVar(expression);
+		return this.pushToVar(expression, name);
 	}
 
 	public getModuleExports(moduleSymbol: ts.Symbol) {
@@ -379,4 +392,12 @@ export class TransformState {
 
 	public forStatementToSymbolsMap = new Map<ts.ForStatement, Array<ts.Symbol>>();
 	public forStatementSymbolToIdMap = new Map<ts.Symbol, luau.TemporaryIdentifier>();
+	public forStatementInitializerSaveInfoMap = new Map<
+		ts.ForStatement,
+		Array<{
+			symbol: ts.Symbol;
+			copyId: luau.TemporaryIdentifier;
+			originalId: luau.TemporaryIdentifier;
+		}>
+	>();
 }

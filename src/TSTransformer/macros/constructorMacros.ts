@@ -1,5 +1,6 @@
 import ts from "byots";
 import luau from "LuauAST";
+import { assert } from "Shared/util/assert";
 import { TransformState } from "TSTransformer";
 import { ConstructorMacro, MacroList } from "TSTransformer/macros/types";
 import { transformExpression } from "TSTransformer/nodes/expressions/transformExpression";
@@ -36,8 +37,8 @@ const SetConstructor: ConstructorMacro = (state, node) => {
 	if (ts.isArrayLiteralExpression(arg) && !arg.elements.some(ts.isSpreadElement)) {
 		return luau.set(ensureTransformOrder(state, arg.elements));
 	} else {
-		const id = state.pushToVar(luau.set());
-		const valueId = luau.tempId();
+		const id = state.pushToVar(luau.set(), "set");
+		const valueId = luau.tempId("v");
 		state.prereq(
 			luau.create(luau.SyntaxKind.ForStatement, {
 				ids: luau.list.make<luau.AnyIdentifier>(luau.emptyId(), valueId),
@@ -69,12 +70,13 @@ const MapConstructor: ConstructorMacro = (state, node) => {
 		const elements = luau.list.toArray(transformed.members).map(e => {
 			// non-null and type assertion because array will always have 2 members,
 			// due to map constructor typing
-			return [e.members.head!.value, e.members.head!.next!.value] as [luau.Expression, luau.Expression];
+			assert(luau.list.isNonEmpty(e.members));
+			return [e.members.head.value, e.members.head.next!.value] as [luau.Expression, luau.Expression];
 		});
 		return luau.map(elements);
 	} else {
-		const id = state.pushToVar(luau.set());
-		const valueId = luau.tempId();
+		const id = state.pushToVar(luau.map(), "map");
+		const valueId = luau.tempId("v");
 		state.prereq(
 			luau.create(luau.SyntaxKind.ForStatement, {
 				ids: luau.list.make<luau.AnyIdentifier>(luau.emptyId(), valueId),

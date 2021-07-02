@@ -1,5 +1,6 @@
 import ts from "byots";
 import { ROACT_SYMBOL_NAMES, SYMBOL_NAMES, TransformState } from "TSTransformer";
+import { NOMINAL_LUA_TUPLE_NAME } from "TSTransformer/classes/MacroManager";
 
 function getRecursiveBaseTypesInner(result: Array<ts.Type>, type: ts.InterfaceType) {
 	for (const baseType of type.getBaseTypes() ?? []) {
@@ -47,7 +48,7 @@ function isPossiblyTypeInner(type: ts.Type, callback: (type: ts.Type) => boolean
 		}
 
 		// defined type
-		if (isObjectType(type) && type.getProperties().length === 0) {
+		if (isDefinedType(type)) {
 			return true;
 		}
 
@@ -57,6 +58,12 @@ function isPossiblyTypeInner(type: ts.Type, callback: (type: ts.Type) => boolean
 
 export function isPossiblyType(type: ts.Type, cb: (type: ts.Type) => boolean) {
 	return isPossiblyTypeInner(type.getConstraint() ?? type, cb);
+}
+
+export function isDefinedType(type: ts.Type) {
+	return (
+		type.flags === ts.TypeFlags.Object && type.getProperties().length === 0 && type.getCallSignatures().length === 0
+	);
 }
 
 export function isAnyType(type: ts.Type) {
@@ -107,15 +114,17 @@ export function isArrayType(state: TransformState, type: ts.Type) {
 
 export function isSetType(state: TransformState, type: ts.Type) {
 	return (
+		type.symbol === state.services.macroManager.getSymbolOrThrow(SYMBOL_NAMES.Set) ||
 		type.symbol === state.services.macroManager.getSymbolOrThrow(SYMBOL_NAMES.ReadonlySet) ||
-		type.symbol === state.services.macroManager.getSymbolOrThrow(SYMBOL_NAMES.Set)
+		type.symbol === state.services.macroManager.getSymbolOrThrow(SYMBOL_NAMES.WeakSet)
 	);
 }
 
 export function isMapType(state: TransformState, type: ts.Type) {
 	return (
+		type.symbol === state.services.macroManager.getSymbolOrThrow(SYMBOL_NAMES.Map) ||
 		type.symbol === state.services.macroManager.getSymbolOrThrow(SYMBOL_NAMES.ReadonlyMap) ||
-		type.symbol === state.services.macroManager.getSymbolOrThrow(SYMBOL_NAMES.Map)
+		type.symbol === state.services.macroManager.getSymbolOrThrow(SYMBOL_NAMES.WeakMap)
 	);
 }
 
@@ -128,7 +137,10 @@ export function isIterableFunctionType(state: TransformState, type: ts.Type) {
 }
 
 export function isLuaTupleType(state: TransformState, type: ts.Type) {
-	return type.aliasSymbol === state.services.macroManager.getSymbolOrThrow(SYMBOL_NAMES.LuaTuple);
+	return (
+		type.getProperty(NOMINAL_LUA_TUPLE_NAME) ===
+		state.services.macroManager.getSymbolOrThrow(NOMINAL_LUA_TUPLE_NAME)
+	);
 }
 
 export function isIterableFunctionLuaTupleType(state: TransformState, type: ts.Type) {

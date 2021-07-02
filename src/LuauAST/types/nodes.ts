@@ -7,7 +7,7 @@ export interface Node<T extends luau.SyntaxKind = luau.SyntaxKind> {
 }
 
 export interface IndexableExpression<
-	T extends keyof luau.IndexableExpressionByKind = keyof luau.IndexableExpressionByKind
+	T extends keyof luau.IndexableExpressionByKind = keyof luau.IndexableExpressionByKind,
 > extends luau.Node<T> {}
 
 export interface Expression<T extends keyof luau.ExpressionByKind = keyof luau.ExpressionByKind> extends luau.Node<T> {}
@@ -61,7 +61,9 @@ export interface Identifier extends luau.Expression<luau.SyntaxKind.Identifier> 
 
 export interface EmptyIdentifier extends luau.Expression<luau.SyntaxKind.EmptyIdentifier> {}
 
-export interface TemporaryIdentifier extends luau.Expression<luau.SyntaxKind.TemporaryIdentifier> {}
+export interface TemporaryIdentifier extends luau.Expression<luau.SyntaxKind.TemporaryIdentifier> {
+	name?: string;
+}
 
 export interface ComputedIndexExpression extends luau.Expression<luau.SyntaxKind.ComputedIndexExpression> {
 	expression: luau.IndexableExpression;
